@@ -45,8 +45,11 @@ func XXD(r io.Reader, w io.Writer) error {
 	r = bufio.NewReader(r)
 	for {
 		n, err := io.ReadFull(r, line)
-		if n == 0 || err == io.EOF {
-			break
+		if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+			return err
+		}
+		if n == 0 {
+			return nil
 		}
 
 		// Line offset
@@ -88,5 +91,4 @@ func XXD(r io.Reader, w io.Writer) error {
 
 		w.Write(newline)
 	}
-	return nil
 }
