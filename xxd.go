@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"unicode/utf8"
 )
 
 func main() {
@@ -66,15 +65,12 @@ func XXD(r io.Reader, w io.Writer) error {
 
 		// Character values
 		b := buf[:n]
-		for len(b) > 0 {
-			r, size := utf8.DecodeRune(b)
-
-			if int(r) > 0x1f && int(r) < 0x7f {
-				fmt.Fprintf(w, "%v", string(r))
+		for _, c := range b {
+			if c > 0x1f && c < 0x7f {
+				fmt.Fprintf(w, "%v", string(c))
 			} else {
 				fmt.Fprintf(w, ".")
 			}
-			b = b[size:]
 		}
 
 		fmt.Fprintf(w, "\n")
