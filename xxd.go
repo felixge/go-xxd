@@ -77,9 +77,9 @@ func XXD(r io.Reader, w io.Writer) error {
 
 		// Character values
 		b := buf[:n]
-		for _, c := range b {
+		for i, c := range b {
 			if c > 0x1f && c < 0x7f {
-				io.WriteString(w, string(c))
+				w.Write(buf[i : i+1])
 			} else {
 				w.Write(dot)
 			}
