@@ -1,6 +1,6 @@
 # go-xxd
 
-This repository contains my question to [How can I improve the performance of
+This repository contains my answer to [How can I improve the performance of
 my xxd
 port?](http://www.reddit.com/r/golang/comments/2s1zn1/how_can_i_improve_the_performance_of_my_xxd_port/)
 on reddit.
