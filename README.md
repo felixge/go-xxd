@@ -9,7 +9,7 @@ The result is a Go version of xxd that outperforms the native versions on OSX
 10.10.1 / Ubuntu 14.04 (inside VirtualBox), see benchmarks below. However, that
 is not impressive, given that none of the usual xxd flags are supported.
 
-What is interesting however was the steps to get there:
+What is interesting however, are the steps to get there:
 
 * Make the code testable and compare against output of native xxd using test/quick: https://github.com/felixge/go-xxd/commit/90262b3dcdc518ca3eaec7171aa14d74d95f34b8
 * Fix bugs: https://github.com/felixge/go-xxd/commit/e9ebeb0abdf78f6e7729fdbfc68842b3a86ee0a3, https://github.com/felixge/go-xxd/commit/120804574f12033999f23e6cf6a3b75961f14da1, https://github.com/felixge/go-xxd/commit/dab678ecf5dcb3eff345db8ac68ae6d7438f9d0e
