@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/rand"
 	"flag"
 	"fmt"
 	"io"
@@ -44,6 +45,19 @@ func TestXXD(t *testing.T) {
 				break
 			}
 		}
+	}
+}
+
+func BenchmarkXXD(b *testing.B) {
+	b.StopTimer()
+	data := make([]byte, b.N)
+	if _, err := io.ReadFull(rand.Reader, data); err != nil {
+		b.Fatal(err)
+	}
+	buf := bytes.NewBuffer(data)
+	b.StartTimer()
+	if err := XXD(buf, ioutil.Discard); err != nil {
+		b.Fatal(err)
 	}
 }
 
