@@ -27,12 +27,6 @@ func main() {
 	}
 }
 
-const (
-	byteOffsetInit = 8
-	charOffsetInt  = 39
-	line_length    = 50
-)
-
 var (
 	space       = []byte(" ")
 	doubleSpace = []byte("  ")
