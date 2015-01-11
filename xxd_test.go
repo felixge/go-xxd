@@ -28,7 +28,7 @@ func TestXXD(t *testing.T) {
 			size := n % uint64(len(data))
 			fmt.Printf("%d\n", size)
 			var out bytes.Buffer
-			if err := fn(bytes.NewBuffer(data[0:size]), &out); err != nil {
+			if err := fn(&pathologicalReader{data[0:size]}, &out); err != nil {
 				return []string{err.Error()}
 			}
 			return strings.Split(out.String(), "\n")
@@ -46,6 +46,26 @@ func TestXXD(t *testing.T) {
 			}
 		}
 	}
+}
+
+type pathologicalReader struct {
+	data []byte
+}
+
+func (p *pathologicalReader) Read(b []byte) (int, error) {
+	n := len(b)
+	if n > len(p.data) {
+		n = len(p.data)
+	}
+	if n > 1 {
+		n--
+	}
+	copy(b, p.data[0:n])
+	p.data = p.data[n:]
+	if len(p.data) == 0 {
+		return n, io.EOF
+	}
+	return n, nil
 }
 
 func BenchmarkXXD(b *testing.B) {

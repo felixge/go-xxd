@@ -37,7 +37,7 @@ func XXD(r io.Reader, w io.Writer) error {
 	r = bufio.NewReader(r)
 	buf := make([]byte, 16)
 	for {
-		n, err := r.Read(buf)
+		n, err := io.ReadFull(r, buf)
 		if n == 0 || err == io.EOF {
 			break
 		}
