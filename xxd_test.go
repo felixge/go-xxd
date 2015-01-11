@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"flag"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"os/exec"
@@ -24,6 +25,7 @@ func TestXXD(t *testing.T) {
 	test := func(fn func(r io.Reader, w io.Writer) error) func(n uint64) []string {
 		return func(n uint64) []string {
 			size := n % uint64(len(data))
+			fmt.Printf("%d\n", size)
 			var out bytes.Buffer
 			if err := fn(bytes.NewBuffer(data[0:size]), &out); err != nil {
 				return []string{err.Error()}
