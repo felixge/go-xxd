@@ -6,8 +6,8 @@ port?](http://www.reddit.com/r/golang/comments/2s1zn1/how_can_i_improve_the_perf
 on reddit.
 
 The result is a Go version of xxd that outperforms the native versions on OSX
-10.10.1, see benchmarks below. However, that is not impressive, given that none
-of the usual xxd flags are supported.
+10.10.1 / Ubuntu 14.04 (inside VirtualBox), see benchmarks below. However, that
+is not impressive, given that none of the usual xxd flags are supported.
 
 What is interesting however was the steps to get there:
 
@@ -22,7 +22,7 @@ What is interesting however was the steps to get there:
 
 You can also follow along by looking at the commit history: https://github.com/felixge/go-xxd/commits/master
 
-## Benchmarks (OSX 10.10.1)
+## OSX 10.10.1:
 
 ### xxd native:
 
@@ -54,5 +54,34 @@ user	0m0.133s
 sys	0m0.004s
 ```
 
-I have also tested this on Ubuntu 14.04 inside Virtualbox, and the results were
-similar.
+## Ubuntu 14.04 (inside VirtualBox):
+
+### xxd native:
+
+```
+$ time xxd image.jpg > /dev/null
+
+real	0m0.273s
+user	0m0.017s
+sys	0m0.231s
+```
+
+### xxd.go (original version from reddit):
+
+```
+$ go build xxd.go && time ./xxd image.jpg > /dev/null
+
+real	0m5.856s
+user	0m3.517s
+sys	0m1.897s
+```
+
+### xxd.go (optimized):
+
+```
+$ go build xxd.go && time ./xxd image.jpg > /dev/null
+
+real	0m0.233s
+user	0m0.021s
+sys	0m0.207s
+```
