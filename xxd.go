@@ -8,15 +8,7 @@ import (
 	"unicode/utf8"
 )
 
-const (
-	byteOffsetInit = 8
-	charOffsetInt  = 39
-	line_length    = 50
-)
-
 func main() {
-	line_offset := 0
-
 	if len(os.Args) != 2 {
 		fmt.Fprintf(os.Stderr, "Usage: %s [file]\n", os.Args[0])
 		os.Exit(1)
@@ -27,8 +19,21 @@ func main() {
 		panic(err)
 	}
 	defer f.Close()
+	if err := XXD(f, os.Stdout); err != nil {
+		panic(err)
+	}
+}
 
-	r := bufio.NewReader(f)
+const (
+	byteOffsetInit = 8
+	charOffsetInt  = 39
+	line_length    = 50
+)
+
+func XXD(r io.Reader, w io.Writer) error {
+	line_offset := 0
+
+	r = bufio.NewReader(r)
 	buf := make([]byte, 16)
 	for {
 		n, err := r.Read(buf)
@@ -37,27 +42,27 @@ func main() {
 		}
 
 		// Line offset
-		fmt.Printf("%06x0: ", line_offset)
+		fmt.Fprintf(w, "%06x0: ", line_offset)
 		line_offset++
 
 		// Hex values
 		for i := 0; i < n; i++ {
-			fmt.Printf("%02x", buf[i])
+			fmt.Fprintf(w, "%02x", buf[i])
 
 			if i%2 == 1 {
-				fmt.Print(" ")
+				fmt.Fprint(w, " ")
 			}
 		}
 		if n < len(buf) {
 			for i := n; i < len(buf); i++ {
-				fmt.Printf("  ")
+				fmt.Fprintf(w, "  ")
 				if i%2 == 1 {
-					fmt.Print(" ")
+					fmt.Fprint(w, " ")
 				}
 			}
 		}
 
-		fmt.Printf(" ")
+		fmt.Fprintf(w, " ")
 
 		// Character values
 		b := buf[:n]
@@ -65,13 +70,14 @@ func main() {
 			r, size := utf8.DecodeRune(b)
 
 			if int(r) > 0x1f && int(r) < 0x7f {
-				fmt.Printf("%v", string(r))
+				fmt.Fprintf(w, "%v", string(r))
 			} else {
-				fmt.Printf(".")
+				fmt.Fprintf(w, ".")
 			}
 			b = b[size:]
 		}
 
-		fmt.Printf("\n")
+		fmt.Fprintf(w, "\n")
 	}
+	return nil
 }
