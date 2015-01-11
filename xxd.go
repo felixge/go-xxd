@@ -32,40 +32,41 @@ var (
 	doubleSpace = []byte("  ")
 	dot         = []byte(".")
 	newline     = []byte("\n")
+	zeroHeader  = []byte("0000000: ")
 )
 
 func XXD(r io.Reader, w io.Writer) error {
-	var line_offset int64
-
+	var (
+		lineOffset int64
+		line       = make([]byte, 16)
+		hexChar    = make([]byte, 2)
+		hexOffset  = make([]byte, 6)
+	)
 	r = bufio.NewReader(r)
-	buf := make([]byte, 16)
-	hexChar := make([]byte, 2)
-	zeroHeader := []byte("0000000: ")
-	hexOffset := make([]byte, 6)
 	for {
-		n, err := io.ReadFull(r, buf)
+		n, err := io.ReadFull(r, line)
 		if n == 0 || err == io.EOF {
 			break
 		}
 
 		// Line offset
-		hexOffset = strconv.AppendInt(hexOffset[0:0], line_offset, 16)
+		hexOffset = strconv.AppendInt(hexOffset[0:0], lineOffset, 16)
 		w.Write(zeroHeader[0:(6 - len(hexOffset))])
 		w.Write(hexOffset)
 		w.Write(zeroHeader[6:])
-		line_offset++
+		lineOffset++
 
 		// Hex values
 		for i := 0; i < n; i++ {
-			hex.Encode(hexChar, buf[i:i+1])
+			hex.Encode(hexChar, line[i:i+1])
 			w.Write(hexChar)
 
 			if i%2 == 1 {
 				w.Write(space)
 			}
 		}
-		if n < len(buf) {
-			for i := n; i < len(buf); i++ {
+		if n < len(line) {
+			for i := n; i < len(line); i++ {
 				w.Write(doubleSpace)
 				if i%2 == 1 {
 					w.Write(space)
@@ -76,10 +77,10 @@ func XXD(r io.Reader, w io.Writer) error {
 		w.Write(space)
 
 		// Character values
-		b := buf[:n]
+		b := line[:n]
 		for i, c := range b {
 			if c > 0x1f && c < 0x7f {
-				w.Write(buf[i : i+1])
+				w.Write(line[i : i+1])
 			} else {
 				w.Write(dot)
 			}
