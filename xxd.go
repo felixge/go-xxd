@@ -37,6 +37,7 @@ func XXD(r io.Reader, w io.Writer) error {
 
 	r = bufio.NewReader(r)
 	buf := make([]byte, 16)
+	hexChar := make([]byte, 2)
 	for {
 		n, err := io.ReadFull(r, buf)
 		if n == 0 || err == io.EOF {
@@ -49,7 +50,8 @@ func XXD(r io.Reader, w io.Writer) error {
 
 		// Hex values
 		for i := 0; i < n; i++ {
-			io.WriteString(w, hex.EncodeToString(buf[i:i+1]))
+			hex.Encode(hexChar, buf[i:i+1])
+			w.Write(hexChar)
 
 			if i%2 == 1 {
 				io.WriteString(w, " ")
