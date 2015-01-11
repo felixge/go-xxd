@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -48,7 +49,7 @@ func XXD(r io.Reader, w io.Writer) error {
 
 		// Hex values
 		for i := 0; i < n; i++ {
-			fmt.Fprintf(w, "%02x", buf[i])
+			io.WriteString(w, hex.EncodeToString(buf[i:i+1]))
 
 			if i%2 == 1 {
 				io.WriteString(w, " ")
