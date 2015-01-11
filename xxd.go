@@ -32,6 +32,13 @@ const (
 	line_length    = 50
 )
 
+var (
+	space       = []byte(" ")
+	doubleSpace = []byte("  ")
+	dot         = []byte(".")
+	newline     = []byte("\n")
+)
+
 func XXD(r io.Reader, w io.Writer) error {
 	line_offset := 0
 
@@ -54,19 +61,19 @@ func XXD(r io.Reader, w io.Writer) error {
 			w.Write(hexChar)
 
 			if i%2 == 1 {
-				io.WriteString(w, " ")
+				w.Write(space)
 			}
 		}
 		if n < len(buf) {
 			for i := n; i < len(buf); i++ {
-				io.WriteString(w, "  ")
+				w.Write(doubleSpace)
 				if i%2 == 1 {
-					io.WriteString(w, " ")
+					w.Write(space)
 				}
 			}
 		}
 
-		io.WriteString(w, " ")
+		w.Write(space)
 
 		// Character values
 		b := buf[:n]
@@ -74,11 +81,11 @@ func XXD(r io.Reader, w io.Writer) error {
 			if c > 0x1f && c < 0x7f {
 				io.WriteString(w, string(c))
 			} else {
-				io.WriteString(w, ".")
+				w.Write(dot)
 			}
 		}
 
-		io.WriteString(w, "\n")
+		w.Write(newline)
 	}
 	return nil
 }
