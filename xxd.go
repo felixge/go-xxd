@@ -51,31 +51,31 @@ func XXD(r io.Reader, w io.Writer) error {
 			fmt.Fprintf(w, "%02x", buf[i])
 
 			if i%2 == 1 {
-				fmt.Fprint(w, " ")
+				io.WriteString(w, " ")
 			}
 		}
 		if n < len(buf) {
 			for i := n; i < len(buf); i++ {
-				fmt.Fprintf(w, "  ")
+				io.WriteString(w, "  ")
 				if i%2 == 1 {
-					fmt.Fprint(w, " ")
+					io.WriteString(w, " ")
 				}
 			}
 		}
 
-		fmt.Fprintf(w, " ")
+		io.WriteString(w, " ")
 
 		// Character values
 		b := buf[:n]
 		for _, c := range b {
 			if c > 0x1f && c < 0x7f {
-				fmt.Fprintf(w, "%v", string(c))
+				io.WriteString(w, string(c))
 			} else {
-				fmt.Fprintf(w, ".")
+				io.WriteString(w, ".")
 			}
 		}
 
-		fmt.Fprintf(w, "\n")
+		io.WriteString(w, "\n")
 	}
 	return nil
 }
