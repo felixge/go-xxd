@@ -18,7 +18,9 @@ func main() {
 		panic(err)
 	}
 	defer f.Close()
-	if err := XXD(f, os.Stdout); err != nil {
+	out := bufio.NewWriter(os.Stdout)
+	defer out.Flush()
+	if err := XXD(f, out); err != nil {
 		panic(err)
 	}
 }
