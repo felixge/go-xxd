@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 )
 
 func main() {
@@ -40,11 +41,13 @@ var (
 )
 
 func XXD(r io.Reader, w io.Writer) error {
-	line_offset := 0
+	var line_offset int64
 
 	r = bufio.NewReader(r)
 	buf := make([]byte, 16)
 	hexChar := make([]byte, 2)
+	zeroHeader := []byte("0000000: ")
+	hexOffset := make([]byte, 6)
 	for {
 		n, err := io.ReadFull(r, buf)
 		if n == 0 || err == io.EOF {
@@ -52,7 +55,10 @@ func XXD(r io.Reader, w io.Writer) error {
 		}
 
 		// Line offset
-		fmt.Fprintf(w, "%06x0: ", line_offset)
+		hexOffset = strconv.AppendInt(hexOffset[0:0], line_offset, 16)
+		w.Write(zeroHeader[0:(6 - len(hexOffset))])
+		w.Write(hexOffset)
+		w.Write(zeroHeader[6:])
 		line_offset++
 
 		// Hex values
