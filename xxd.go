@@ -253,6 +253,19 @@ func xxd(r io.Reader, w io.Writer, fname string) error {
 		if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
 			return err
 		}
+
+		// Speed it up a bit ;)
+		if *postscript && n != 0 {
+			// Post script values
+			// Basically just raw hex output
+			for i := 0; i < n; i++ {
+				hexEncode(char, line[i:i+1], caps)
+				w.Write(char)
+				c++
+			}
+			continue
+		}
+
 		if n == 0 && !*cfmt {
 			return nil
 		} else if n == 0 && *cfmt {
@@ -321,15 +334,7 @@ func xxd(r io.Reader, w io.Writer, fname string) error {
 					w.Write(comma)
 				}
 			}
-		} else if *postscript {
-			// Post script values
-			// Basically just raw hex output
-			for i := 0; i < n; i++ {
-				hexEncode(char, line[i:i+1], caps)
-				w.Write(char)
-				c++
-			}
-		} else {
+		} else if !*postscript {
 			// Hex values -- default xxd FILE output
 			for i := 0; i < n; i++ {
 				hexEncode(char, line[i:i+1], caps)
