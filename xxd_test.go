@@ -15,7 +15,7 @@ import (
 
 var xxdFile = flag.String("xxdFile", "", "File to test against.")
 
-func TestXXD(t *testing.T) {
+func Testxxd(t *testing.T) {
 	if *xxdFile == "" {
 		t.Skip("-xxdFile argument not given")
 	}
@@ -34,7 +34,7 @@ func TestXXD(t *testing.T) {
 			return strings.Split(out.String(), "\n")
 		}
 	}
-	if err := quick.CheckEqual(test(XXD), test(xxdNative), nil); err != nil {
+	if err := quick.CheckEqual(test(xxd), test(xxdNative), nil); err != nil {
 		cErr := err.(*quick.CheckEqualError)
 		size := cErr.In[0].(uint64) % uint64(len(data))
 		for i := range cErr.Out1[0].([]string) {
@@ -68,7 +68,7 @@ func (p *pathologicalReader) Read(b []byte) (int, error) {
 	return n, nil
 }
 
-func BenchmarkXXD(b *testing.B) {
+func Benchmarkxxd(b *testing.B) {
 	b.StopTimer()
 	data := make([]byte, b.N)
 	if _, err := io.ReadFull(rand.Reader, data); err != nil {
@@ -76,7 +76,7 @@ func BenchmarkXXD(b *testing.B) {
 	}
 	buf := bytes.NewBuffer(data)
 	b.StartTimer()
-	if err := XXD(buf, ioutil.Discard); err != nil {
+	if err := xxd(buf, ioutil.Discard); err != nil {
 		b.Fatal(err)
 	}
 }
