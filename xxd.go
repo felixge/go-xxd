@@ -4,13 +4,34 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"strconv"
 
 	flag "github.com/ogier/pflag"
 )
 
-var _ = fmt.Println // for debugging
+const (
+	Help = `Usage:
+       xxd [options] [infile [outfile]]
+    or
+       xxd -r [-s offset] [-c cols] [--ps] [infile [outfile]]
+Options:
+    -a, --autoskip     toggle autoskip: A single '*' replaces nul-lines. Default off.
+    -b, --binary       binary digit dump (incompatible with -ps,-i,-r). Default hex.
+    -c, --cols         format <cols> octets per line. Default 16 (-i 12, --ps 30).
+    -E, --ebcdic       show characters in EBCDIC. Default ASCII.
+    -g, --groups       number of octets per group in normal output. Default 2.
+    -h, --help         print this summary.
+    -i, --include      output in C include file style.
+    -l, --length       stop after <len> octets.
+        --ps           output in postscript plain hexdump style.
+    -s, --seek         start at <seek> bytes abs. (or +: rel.) infile offset.
+    -u, --uppercase    use upper case hex letters.
+    -v, --version      show version: "xxd V1.10 27oct98 by Juergen Weigert".`
+	Version = `xxd v1.0 2014-14-01 by Felix Geisendörfer and Eric Lagergren`
+	_       = `-r, --reverse      reverse operation: convert (or patch) hexdump into binary.`
+)
 
 // cli flags
 var (
@@ -24,7 +45,7 @@ var (
 	postscript = flag.Bool("ps", false, "output in postscript plain hd style")
 	reverse    = flag.BoolP("reverse", "r", false, "convert hex to binary")
 	offset     = flag.Int("off", 0, "revert with offset")
-	seek       = flag.IntP("seek", "s", 0, "start at seek bytes abs")
+	seek       = flag.Int64P("seek", "s", 0, "start at seek bytes abs")
 	upper      = flag.BoolP("uppercase", "u", false, "use uppercase hex letters")
 	version    = flag.BoolP("version", "v", false, "print version")
 )
@@ -42,10 +63,14 @@ var (
 	newLine      = []byte("\n")
 	zeroHeader   = []byte("0000000: ")
 	unsignedChar = []byte("unsigned char ")
+	unsignedInt  = []byte("};\nunsigned int ")
+	lenEquals    = []byte("_len = ")
 	brackets     = []byte("[] = {")
 	asterisk     = []byte("*")
 	hexPrefix    = []byte("0x")
+	commaSpace   = []byte(", ")
 	comma        = []byte(",")
+	semiColonNl  = []byte(";\n")
 )
 
 // ascii -> ebcdic lookup table
@@ -90,6 +115,15 @@ func hexEncode(dst, src []byte, hextable string) {
 	}
 }
 
+func cfmtEncode(dst, src []byte, hextable string) {
+	dst[0] = '0'
+	dst[1] = 'x'
+	for i, v := range src {
+		dst[i+1*2] = hextable[v>>4]
+		dst[i+1*2+1] = hextable[v&0x0f]
+	}
+}
+
 // convert a byte into its binary representation
 func binaryEncode(dst, src []byte) {
 	d := uint(0)
@@ -103,12 +137,6 @@ func binaryEncode(dst, src []byte) {
 	}
 }
 
-/*func cFmtEncode(dst, src []byte) {
-	for i := 0; i < len(src); i++ {
-		dst[i] = hexEncode(dst, src, hextable)
-	}
-}*/
-
 // check if entire line is full of empty []byte{0} bytes (nul in C)
 func empty(b *[]byte) bool {
 	for _, v := range *b {
@@ -120,9 +148,6 @@ func empty(b *[]byte) bool {
 }
 
 func xxd(r io.Reader, w io.Writer, fname string) error {
-	// Define our writer inside xxd() so we can periodically flush the buffer
-	// TO-DO: Move it back in? lol.
-
 	var (
 		lineOffset int64
 		hexOffset  = make([]byte, 6)
@@ -130,23 +155,36 @@ func xxd(r io.Reader, w io.Writer, fname string) error {
 		cols       int
 		octs       int
 		doCHeader  = true
-		cVariable  = make([]byte, len(fname))
+		doCEnd     bool
+		// enough room for "unsigned char NAME_FORMAT[] = {"
+		varDeclChar = make([]byte, 14+len(fname)+6)
+		// enough room for "unsigned int NAME_FORMAT = "
+		varDeclInt = make([]byte, 16+len(fname)+7)
 		nulLine    int64
 		totalOcts  int64
 	)
 
-	// Generate C variable in filename_format format
-	// e.g. foo.txt -> foo_txt
+	// Generate the first and last line in the -i output:
+	// e.g. unsigned char foo_txt[] = { and unsigned int foo_txt_len =
 	if *cfmt {
+		// copy over "unnsigned char " and "unsigned int"
+		_ = copy(varDeclChar[0:14], unsignedChar[:])
+		_ = copy(varDeclInt[0:16], unsignedInt[:])
+
 		i := 0
 		for i < len(fname) {
 			if fname[i] != '.' {
-				cVariable[i] = fname[i]
+				varDeclChar[14+i] = fname[i]
+				varDeclInt[16+i] = fname[i]
 			} else {
-				cVariable[i] = '_'
+				varDeclChar[14+i] = '_'
+				varDeclInt[16+i] = '_'
 			}
 			i++
 		}
+		// copy over "[] = {" and "_len = "
+		_ = copy(varDeclChar[14+len(fname):], brackets[:])
+		_ = copy(varDeclInt[16+len(fname):], lenEquals[:])
 	}
 
 	// Switch between upper- and lower-case hex chars
@@ -178,8 +216,10 @@ func xxd(r io.Reader, w io.Writer, fname string) error {
 		switch true {
 		case *binary:
 			octs = 8
-		case *postscript, *cfmt:
+		case *postscript:
 			octs = 0
+		case *cfmt:
+			octs = 4
 		default:
 			octs = 2
 		}
@@ -206,14 +246,17 @@ func xxd(r io.Reader, w io.Writer, fname string) error {
 		odd  = *postscript || *cfmt
 	)
 
+	c := int64(0) // number of characters
 	r = bufio.NewReader(r)
 	for {
 		n, err := io.ReadFull(r, line)
 		if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
 			return err
 		}
-		if n == 0 {
+		if n == 0 && !*cfmt {
 			return nil
+		} else if n == 0 && *cfmt {
+			doCEnd = true
 		}
 
 		if *length != -1 {
@@ -245,9 +288,7 @@ func xxd(r io.Reader, w io.Writer, fname string) error {
 			w.Write(zeroHeader[6:])
 			lineOffset++
 		} else if doCHeader && *cfmt {
-			w.Write(unsignedChar)
-			w.Write(cVariable)
-			w.Write(brackets)
+			w.Write(varDeclChar)
 			w.Write(newLine)
 			doCHeader = false
 		}
@@ -257,6 +298,7 @@ func xxd(r io.Reader, w io.Writer, fname string) error {
 			for i := 0; i < n; i++ {
 				binaryEncode(char, line[i:i+1])
 				w.Write(char)
+				c++
 
 				if i%2 == 1 {
 					w.Write(space)
@@ -264,14 +306,19 @@ func xxd(r io.Reader, w io.Writer, fname string) error {
 			}
 		} else if *cfmt {
 			// C values
-			w.Write(space)
+			if !doCEnd {
+				w.Write(doubleSpace)
+			}
 			for i := 0; i < n; i++ {
-				w.Write(hexPrefix)
-				hexEncode(char, line[i:i+1], caps)
+				cfmtEncode(char, line[i:i+1], caps)
 				w.Write(char)
+				c++
+
+				// don't add spaces to EOL
 				if i != n-1 {
+					w.Write(commaSpace)
+				} else if doCEnd {
 					w.Write(comma)
-					w.Write(space)
 				}
 			}
 		} else if *postscript {
@@ -280,12 +327,14 @@ func xxd(r io.Reader, w io.Writer, fname string) error {
 			for i := 0; i < n; i++ {
 				hexEncode(char, line[i:i+1], caps)
 				w.Write(char)
+				c++
 			}
 		} else {
 			// Hex values -- default xxd FILE output
 			for i := 0; i < n; i++ {
 				hexEncode(char, line[i:i+1], caps)
 				w.Write(char)
+				c++
 
 				if i%2 == 1 {
 					w.Write(space)
@@ -293,7 +342,14 @@ func xxd(r io.Reader, w io.Writer, fname string) error {
 			}
 		}
 
-		if n < len(line) {
+		if doCEnd {
+			w.Write(varDeclInt)
+			w.Write([]byte(strconv.FormatInt(c, 10)))
+			w.Write(semiColonNl)
+			return nil
+		}
+
+		if n < len(line) && !*cfmt {
 			for i := n; i < len(line); i++ {
 				w.Write(doubleSpace)
 
@@ -303,7 +359,9 @@ func xxd(r io.Reader, w io.Writer, fname string) error {
 			}
 		}
 
-		w.Write(space)
+		if !*cfmt {
+			w.Write(space)
+		}
 
 		if *binary || !odd {
 			// Character values
@@ -339,21 +397,60 @@ func xxd(r io.Reader, w io.Writer, fname string) error {
 }
 
 func main() {
-	flag.Parse()
-	if len(flag.Args()) > 1 {
-		panic("too many args")
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "%s\n", Help)
+		os.Exit(0)
 	}
+	flag.Parse()
+
+	if *version {
+		fmt.Fprintf(os.Stderr, "%s\n", Version)
+		os.Exit(0)
+	}
+
+	if flag.NArg() > 2 {
+		log.Fatalf("too many arguments after %s\n", flag.Args()[1])
+	} else if flag.NArg() == 0 {
+		log.Fatalln("missing file to parse")
+	}
+
+	var err error
 	file := flag.Args()[0]
 
-	fi, err := os.Open(file)
-	if err != nil {
-		panic(err)
+	var inFile *os.File
+	if file == "--" {
+		inFile = os.Stdin
+	} else {
+		inFile, err = os.Open(file)
+		if err != nil {
+			log.Fatalln(err)
+		}
 	}
-	defer fi.Close()
-	out := bufio.NewWriter(os.Stdout)
+	defer inFile.Close()
+
+	// Start *seek bytes into file
+	if *seek != 0 {
+		_, err = inFile.Seek(*seek, os.SEEK_SET)
+		if err != nil {
+			log.Fatalln(err)
+		}
+	}
+
+	var outFile *os.File
+	if flag.NArg() == 2 {
+		outFile, err = os.Open(flag.Args()[1])
+		if err != nil {
+			log.Fatalln(err)
+		}
+	} else {
+		outFile = os.Stdout
+	}
+	defer outFile.Close()
+
+	out := bufio.NewWriter(outFile)
 	defer out.Flush()
 
-	if err := xxd(fi, out, file); err != nil {
-		panic(err)
+	if err := xxd(inFile, out, file); err != nil {
+		log.Fatalln(err)
 	}
 }
