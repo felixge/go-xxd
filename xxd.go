@@ -82,6 +82,7 @@ const (
 	udigits = "0123456789ABCDEF"
 )
 
+// copied from encoding/hex package in order to add support for uppercase hex
 func hexEncode(dst, src []byte, hextable string) {
 	for i, v := range src {
 		dst[i*2] = hextable[v>>4]
@@ -89,6 +90,7 @@ func hexEncode(dst, src []byte, hextable string) {
 	}
 }
 
+// convert a byte into its binary representation
 func binaryEncode(dst, src []byte) {
 	d := uint(0)
 	for i := 7; i >= 0; i-- {
@@ -107,6 +109,7 @@ func binaryEncode(dst, src []byte) {
 	}
 }*/
 
+// check if entire line is full of empty []byte{0} bytes (nul in C)
 func empty(b *[]byte) bool {
 	for _, v := range *b {
 		if v != 0 {
@@ -116,10 +119,9 @@ func empty(b *[]byte) bool {
 	return true
 }
 
-func xxd(r io.Reader, fname string) error {
+func xxd(r io.Reader, w io.Writer, fname string) error {
 	// Define our writer inside xxd() so we can periodically flush the buffer
-	// TO-DO: This could be moved out again?
-	w := bufio.NewWriter(os.Stdout)
+	// TO-DO: Move it back in? lol.
 
 	var (
 		lineOffset int64
@@ -185,6 +187,7 @@ func xxd(r io.Reader, fname string) error {
 		octs = *group
 	}
 
+	// If -l is smaller than the number of cols just truncate the cols
 	if *length != -1 {
 		if *length < int64(cols) {
 			cols = int(*length)
@@ -200,7 +203,7 @@ func xxd(r io.Reader, fname string) error {
 	var (
 		line = make([]byte, cols)
 		char = make([]byte, octs)
-		odd  = *postscript && *cfmt
+		odd  = *postscript || *cfmt
 	)
 
 	r = bufio.NewReader(r)
@@ -229,7 +232,7 @@ func xxd(r io.Reader, fname string) error {
 			nulLine++
 
 			if nulLine > 1 {
-				lineOffset++ // continue to incriment our offset
+				lineOffset++ // continue to increment our offset
 				continue
 			}
 		}
@@ -245,6 +248,7 @@ func xxd(r io.Reader, fname string) error {
 			w.Write(unsignedChar)
 			w.Write(cVariable)
 			w.Write(brackets)
+			w.Write(newLine)
 			doCHeader = false
 		}
 
@@ -261,13 +265,12 @@ func xxd(r io.Reader, fname string) error {
 		} else if *cfmt {
 			// C values
 			w.Write(space)
-			for i := 0; i < n && i != 0; i++ {
+			for i := 0; i < n; i++ {
 				w.Write(hexPrefix)
 				hexEncode(char, line[i:i+1], caps)
 				w.Write(char)
-				w.Write(comma)
-
-				if i%2 == 1 {
+				if i != n-1 {
+					w.Write(comma)
 					w.Write(space)
 				}
 			}
@@ -305,6 +308,7 @@ func xxd(r io.Reader, fname string) error {
 		if *binary || !odd {
 			// Character values
 			b := line[:n]
+			// EBCDIC
 			if *ebcdic {
 				for _, c := range b {
 					if c >= ebcdicOffset {
@@ -318,6 +322,7 @@ func xxd(r io.Reader, fname string) error {
 						w.Write(dot)
 					}
 				}
+				// ASCII
 			} else {
 				for i, c := range b {
 					if c > 0x1f && c < 0x7f {
@@ -328,9 +333,7 @@ func xxd(r io.Reader, fname string) error {
 				}
 			}
 		}
-
 		w.Write(newLine)
-		w.Flush()
 	}
 	return nil
 }
@@ -342,13 +345,15 @@ func main() {
 	}
 	file := flag.Args()[0]
 
-	f, err := os.Open(file)
+	fi, err := os.Open(file)
 	if err != nil {
 		panic(err)
 	}
-	defer f.Close()
+	defer fi.Close()
+	out := bufio.NewWriter(os.Stdout)
+	defer out.Flush()
 
-	if err := xxd(f, file); err != nil {
+	if err := xxd(fi, out, file); err != nil {
 		panic(err)
 	}
 }
