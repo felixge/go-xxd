@@ -415,16 +415,23 @@ func main() {
 
 	if flag.NArg() > 2 {
 		log.Fatalf("too many arguments after %s\n", flag.Args()[1])
-	} else if flag.NArg() == 0 {
-		log.Fatalln("missing file to parse")
 	}
 
-	var err error
-	file := flag.Args()[0]
+	var (
+		err  error
+		file string
+	)
+
+	if flag.NArg() >= 1 {
+		file = flag.Args()[0]
+	} else {
+		file = "--"
+	}
 
 	var inFile *os.File
 	if file == "--" {
 		inFile = os.Stdin
+		file = "stdin"
 	} else {
 		inFile, err = os.Open(file)
 		if err != nil {
