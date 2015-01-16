@@ -26,11 +26,11 @@ Options:
     -i, --include      output in C include file style.
     -l, --length       stop after <len> octets.
         --ps           output in postscript plain hexdump style.
+    -r, --reverse      reverse operation: convert (or patch) hexdump into ASCII output.
     -s, --seek         start at <seek> bytes abs. (or +: rel.) infile offset.
     -u, --uppercase    use upper case hex letters.
     -v, --version      show version: "xxd V1.10 27oct98 by Juergen Weigert".`
 	Version = `xxd v1.0 2014-14-01 by Felix Geisendörfer and Eric Lagergren`
-	_       = `-r, --reverse      reverse operation: convert (or patch) hexdump into binary.`
 )
 
 // cli flags
@@ -137,6 +137,51 @@ func binaryEncode(dst, src []byte) {
 	}
 }
 
+// copied from encoding/hex package
+// returns -1 on bad byte
+// returns -2 on space (\n, \t, \s)
+// returns -3 on two consecutive spaces
+// returns 0 on success
+func hexDecode(dst, src []byte) int {
+	if src[0] == 32 ||
+		src[0] == 9 ||
+		src[0] == 12 {
+		if src[1] == 32 ||
+			src[1] == 9 ||
+			src[1] == 12 {
+			return -3
+		}
+		return -2
+	}
+
+	for i := 0; i < len(src)/2; i++ {
+		a, ok := fromHexChar(src[i*2])
+		if !ok {
+			return -1
+		}
+		b, ok := fromHexChar(src[i*2+1])
+		if !ok {
+			return -1
+		}
+		dst[i] = (a << 4) | b
+	}
+	return 0
+}
+
+// copied from encoding/hex package
+func fromHexChar(c byte) (byte, bool) {
+	switch {
+	case '0' <= c && c <= '9':
+		return c - '0', true
+	case 'a' <= c && c <= 'f':
+		return c - 'a' + 10, true
+	case 'A' <= c && c <= 'F':
+		return c - 'A' + 10, true
+	}
+
+	return 0, false
+}
+
 // check if entire line is full of empty []byte{0} bytes (nul in C)
 func empty(b *[]byte) bool {
 	for _, v := range *b {
@@ -162,7 +207,12 @@ func xxd(r io.Reader, w io.Writer, fname string) error {
 		varDeclInt = make([]byte, 16+len(fname)+7)
 		nulLine    int64
 		totalOcts  int64
+		skip       bool
 	)
+
+	if *reverse && (*binary || *cfmt) {
+		log.Fatalln("xxd: sorry, cannot revert this type of hexdump")
+	}
 
 	// Generate the first and last line in the -i output:
 	// e.g. unsigned char foo_txt[] = { and unsigned int foo_txt_len =
@@ -171,8 +221,7 @@ func xxd(r io.Reader, w io.Writer, fname string) error {
 		_ = copy(varDeclChar[0:14], unsignedChar[:])
 		_ = copy(varDeclInt[0:16], unsignedInt[:])
 
-		i := 0
-		for i < len(fname) {
+		for i := 0; i < len(fname); i++ {
 			if fname[i] != '.' {
 				varDeclChar[14+i] = fname[i]
 				varDeclInt[16+i] = fname[i]
@@ -180,7 +229,6 @@ func xxd(r io.Reader, w io.Writer, fname string) error {
 				varDeclChar[14+i] = '_'
 				varDeclInt[16+i] = '_'
 			}
-			i++
 		}
 		// copy over "[] = {" and "_len = "
 		_ = copy(varDeclChar[14+len(fname):], brackets[:])
@@ -241,13 +289,59 @@ func xxd(r io.Reader, w io.Writer, fname string) error {
 	// These are bumped down from the beginning of the function in order to
 	// allow for their sizes to be allocated based on the user's speficiations
 	var (
-		line = make([]byte, cols)
-		char = make([]byte, octs)
-		odd  = *postscript || *cfmt
+		line    = make([]byte, cols)
+		char    = make([]byte, octs)
+		revChar = make([]byte, 1)
+		odd     = *postscript || *cfmt
 	)
 
 	c := int64(0) // number of characters
 	r = bufio.NewReader(r)
+
+	// We need to resize some stuff, so I've brought the reverse portion
+	// into its own loop
+	if *reverse {
+		var revLine = make([]byte, 9+cols*2+cols)
+		for {
+			n, err := io.ReadFull(r, revLine)
+			if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+				return err
+			}
+
+			// reverse output of hex files, not binary or C format
+			if n != 0 {
+				// skip first 8 of line because it's the counter thingy
+				// don't go to EOL because COLS bytes of that is the human-
+				// readable output
+				for i := 9; i < n-cols; i += 2 {
+					if n := hexDecode(revChar, revLine[i:i+2]); n == -1 {
+						skip = true
+						break
+					} else if n == -2 {
+						i++ // advance past the space
+						hexDecode(revChar, revLine[i:i+2])
+						w.Write(revChar)
+					} else if n == -3 {
+						continue
+					} else {
+						w.Write(revChar)
+						c++
+					}
+				}
+				if skip {
+					skip = false
+					continue // we've found a garbage line, so skip it
+				}
+
+				// For some reason "xxd FILE | xxd -r -c N" truncates the output,
+				// so we'll do it as well
+				// "xxd FILE | xxd -r -l N" doesn't truncate
+			}
+			return nil
+		}
+	}
+
+	// all encoding portions
 	for {
 		n, err := io.ReadFull(r, line)
 		if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
