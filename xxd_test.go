@@ -23,12 +23,12 @@ func TestXXD(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	test := func(fn func(r io.Reader, w io.Writer) error) func(n uint64) []string {
+	test := func(fn func(r io.Reader, w io.Writer, s string) error) func(n uint64) []string {
 		return func(n uint64) []string {
 			size := n % uint64(len(data))
 			fmt.Printf("%d\n", size)
 			var out bytes.Buffer
-			if err := fn(&pathologicalReader{data[0:size]}, &out); err != nil {
+			if err := fn(&pathologicalReader{data[0:size]}, &out, ""); err != nil {
 				return []string{err.Error()}
 			}
 			return strings.Split(out.String(), "\n")
@@ -76,12 +76,12 @@ func BenchmarkXXD(b *testing.B) {
 	}
 	buf := bytes.NewBuffer(data)
 	b.StartTimer()
-	if err := XXD(buf, ioutil.Discard); err != nil {
+	if err := XXD(buf, ioutil.Discard, ""); err != nil {
 		b.Fatal(err)
 	}
 }
 
-func xxdNative(r io.Reader, w io.Writer) error {
+func xxdNative(r io.Reader, w io.Writer, s string) error {
 	xxd := exec.Command("xxd", "-")
 	xxd.Stdin = r
 	xxd.Stdout = w
