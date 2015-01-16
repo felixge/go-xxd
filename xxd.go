@@ -29,7 +29,7 @@ Options:
     -r, --reverse      reverse operation: convert (or patch) hexdump into ASCII output.
     -s, --seek         start at <seek> bytes abs. (or +: rel.) infile offset.
     -u, --uppercase    use upper case hex letters.
-    -v, --version      show version: "xxd V1.10 27oct98 by Juergen Weigert".`
+    -v, --version      show version.`
 	Version = `xxd v1.0 2014-14-01 by Felix Geisendörfer and Eric Lagergren`
 )
 
