@@ -336,6 +336,9 @@ func xxd(r io.Reader, w io.Writer, fname string) error {
 				// For some reason "xxd FILE | xxd -r -c N" truncates the output,
 				// so we'll do it as well
 				// "xxd FILE | xxd -r -l N" doesn't truncate
+				if c == int64(cols) {
+					return nil
+				}
 			}
 			return nil
 		}
