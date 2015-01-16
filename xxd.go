@@ -208,6 +208,9 @@ func xxd(r io.Reader, w io.Writer, fname string) error {
 		nulLine    int64
 		totalOcts  int64
 		skip       bool
+		odd        = *postscript || *cfmt
+		char       []byte
+		line       []byte
 	)
 
 	if *reverse && (*binary || *cfmt) {
@@ -288,67 +291,54 @@ func xxd(r io.Reader, w io.Writer, fname string) error {
 
 	// These are bumped down from the beginning of the function in order to
 	// allow for their sizes to be allocated based on the user's speficiations
-	var (
-		line    = make([]byte, cols)
-		char    = make([]byte, octs)
-		revChar = make([]byte, 1)
-		odd     = *postscript || *cfmt
-	)
+	if *reverse {
+		line = make([]byte, 9+cols*2+cols)
+		char = make([]byte, 1)
+	} else {
+		line = make([]byte, cols)
+		char = make([]byte, octs)
+	}
 
 	c := int64(0) // number of characters
 	r = bufio.NewReader(r)
-
-	// We need to resize some stuff, so I've brought the reverse portion
-	// into its own loop
-	if *reverse {
-		var revLine = make([]byte, 9+cols*2+cols)
-		for {
-			n, err := io.ReadFull(r, revLine)
-			if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
-				return err
-			}
-
-			// reverse output of hex files, not binary or C format
-			if n != 0 {
-				// skip first 8 of line because it's the counter thingy
-				// don't go to EOL because COLS bytes of that is the human-
-				// readable output
-				for i := 9; i < n-cols; i += 2 {
-					if n := hexDecode(revChar, revLine[i:i+2]); n == -1 {
-						skip = true
-						break
-					} else if n == -2 {
-						i++ // advance past the space
-						hexDecode(revChar, revLine[i:i+2])
-						w.Write(revChar)
-					} else if n == -3 {
-						continue
-					} else {
-						w.Write(revChar)
-						c++
-					}
-				}
-				if skip {
-					skip = false
-					continue // we've found a garbage line, so skip it
-				}
-
-				// For some reason "xxd FILE | xxd -r -c N" truncates the output,
-				// so we'll do it as well
-				// "xxd FILE | xxd -r -l N" doesn't truncate
-				if c == int64(cols) {
-					return nil
-				}
-			}
-			return nil
-		}
-	}
-
-	// all encoding portions
 	for {
 		n, err := io.ReadFull(r, line)
 		if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
 			return err
+		}
+
+		// reverse output of hex files, not binary or C format
+		if *reverse && n != 0 {
+			// skip first 8 of line because it's the counter thingy
+			// don't go to EOL because COLS bytes of that is the human-
+			// readable output
+			for i := 9; i < n-cols; i += 2 {
+				if n := hexDecode(char, line[i:i+2]); n == -1 {
+					skip = true
+					break
+				} else if n == -2 {
+					i++ // advance past the space
+					hexDecode(char, line[i:i+2])
+					w.Write(char)
+				} else if n == -3 {
+					continue
+				} else {
+					w.Write(char)
+					c++
+				}
+			}
+			if skip {
+				skip = false
+				continue // we've found a garbage line, so skip it
+			}
+
+			// For some reason "xxd FILE | xxd -r -c N" truncates the output,
+			// so we'll do it as well
+			// "xxd FILE | xxd -r -l N" doesn't truncate
+			if c == int64(cols) {
+				return nil
+			}
+			return nil
 		}
 
 		// Speed it up a bit ;)
