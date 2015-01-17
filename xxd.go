@@ -354,6 +354,9 @@ func xxd(r io.Reader, w io.Writer, fname string) error {
 		}
 
 		if n == 0 && !*cfmt {
+			if *postscript {
+				w.Write(newLine)
+			}
 			return nil
 		} else if n == 0 && *cfmt {
 			doCEnd = true
@@ -398,11 +401,9 @@ func xxd(r io.Reader, w io.Writer, fname string) error {
 			for i := 0; i < n; i++ {
 				binaryEncode(char, line[i:i+1])
 				w.Write(char)
+				w.Write(space)
 				c++
 
-				if i%2 == 1 {
-					w.Write(space)
-				}
 			}
 		} else if *cfmt {
 			// C values
@@ -508,6 +509,26 @@ func main() {
 		err  error
 		file string
 	)
+
+	switch true {
+	case *binary:
+		*cfmt = false
+		*postscript = false
+		fallthrough
+	case *postscript:
+		*postscript = true
+		*binary = false
+		*cfmt = false
+		fallthrough
+	case *cfmt:
+		*cfmt = true
+		*binary = false
+		*postscript = false
+	default:
+		*cfmt = false
+		*binary = false
+		*postscript = false
+	}
 
 	if flag.NArg() >= 1 {
 		file = flag.Args()[0]
