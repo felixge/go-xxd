@@ -11,6 +11,7 @@ import (
 	flag "github.com/ogier/pflag"
 )
 
+// usage and version
 const (
 	Help = `Usage:
        xxd [options] [infile [outfile]]
@@ -27,10 +28,10 @@ Options:
     -l, --length       stop after <len> octets.
         --ps           output in postscript plain hexdump style.
     -r, --reverse      reverse operation: convert (or patch) hexdump into ASCII output.
-    -s, --seek         start at <seek> bytes abs. (or +: rel.) infile offset.
+    -s, --seek         start at <seek> bytes in file.
     -u, --uppercase    use upper case hex letters.
     -v, --version      show version.`
-	Version = `xxd v1.0 2014-14-01 by Felix Geisendörfer and Eric Lagergren`
+	Version = `xxd v2.0 2014-17-01 by Felix Geisendörfer and Eric Lagergren`
 )
 
 // cli flags
@@ -55,8 +56,18 @@ const (
 	ebcdicOffset = 0x40
 )
 
-// variables used in xxd()
+// dumpType enum
+const (
+	dumpHex = iota
+	dumpBinary
+	dumpCformat
+	dumpPostscript
+)
+
+// variables used in xxd*()
 var (
+	dumpType int
+
 	space        = []byte(" ")
 	doubleSpace  = []byte("  ")
 	dot          = []byte(".")
@@ -101,20 +112,6 @@ var ebcdicTable = []byte{
 	0070, 0071, 0372, 0373, 0374, 0375, 0376, 0377,
 }
 
-// hex lookup table for hexEncode()
-const (
-	ldigits = "0123456789abcdef"
-	udigits = "0123456789ABCDEF"
-)
-
-// copied from encoding/hex package in order to add support for uppercase hex
-func hexEncode(dst, src []byte, hextable string) {
-	for i, v := range src {
-		dst[i*2] = hextable[v>>4]
-		dst[i*2+1] = hextable[v&0x0f]
-	}
-}
-
 func cfmtEncode(dst, src []byte, hextable string) {
 	dst[0] = '0'
 	dst[1] = 'x'
@@ -137,18 +134,53 @@ func binaryEncode(dst, src []byte) {
 	}
 }
 
+// returns -1 on success
+// returns k > -1 if space found where k is index of space byte
+func binaryDecode(dst, src []byte) int {
+	var d byte
+
+	for i, v := range src {
+		d <<= 1
+		if isSpace(&v) { // found a space, so between groups
+			if i == 0 {
+				return 1
+			}
+			return i
+		}
+		if v == '1' {
+			d ^= 1
+		}
+	}
+	if d < 32 || d > 127 {
+		return 1
+	}
+
+	dst[0] = d
+	return -1
+}
+
+// hex lookup table for hexEncode()
+const (
+	ldigits = "0123456789abcdef"
+	udigits = "0123456789ABCDEF"
+)
+
+// copied from encoding/hex package in order to add support for uppercase hex
+func hexEncode(dst, src []byte, hextable string) {
+	for i, v := range src {
+		dst[i*2] = hextable[v>>4]
+		dst[i*2+1] = hextable[v&0x0f]
+	}
+}
+
 // copied from encoding/hex package
 // returns -1 on bad byte
 // returns -2 on space (\n, \t, \s)
 // returns -3 on two consecutive spaces
 // returns 0 on success
 func hexDecode(dst, src []byte) int {
-	if src[0] == 32 ||
-		src[0] == 9 ||
-		src[0] == 12 {
-		if src[1] == 32 ||
-			src[1] == 9 ||
-			src[1] == 12 {
+	if isSpace(&src[0]) {
+		if isSpace(&src[1]) {
 			return -3
 		}
 		return -2
@@ -163,7 +195,14 @@ func hexDecode(dst, src []byte) int {
 		if !ok {
 			return -1
 		}
-		dst[i] = (a << 4) | b
+
+		// check bounds
+		r := (a << 4) | b
+		if r < 32 || r > 127 {
+			return -3
+		} else {
+			dst[0] = r
+		}
 	}
 	return 0
 }
@@ -192,13 +231,106 @@ func empty(b *[]byte) bool {
 	return true
 }
 
+func isSpace(b *byte) bool {
+	if *b == 32 ||
+		*b == 9 ||
+		*b == 12 {
+		return true
+	}
+	return false
+}
+
+func xxdReverse(r io.Reader, w io.Writer) error {
+	var (
+		cols int
+		octs int
+		char = make([]byte, 1)
+	)
+
+	if *columns != -1 {
+		cols = *columns
+	}
+
+	switch dumpType {
+	case dumpBinary:
+		octs = 8
+	case dumpPostscript:
+		octs = 0
+	case dumpCformat:
+		octs = 4
+	default:
+		octs = 2
+	}
+
+	if *length != -1 {
+		if *length < int64(cols) {
+			cols = int(*length)
+		}
+	}
+
+	if octs < 1 {
+		octs = cols
+	}
+
+	c := int64(0) // number of characters
+	rd := bufio.NewReader(r)
+	for {
+		line, err := rd.ReadBytes('\n') // read up until a newline
+		n := len(line)
+		if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+			return err
+		}
+
+		if n == 0 {
+			return nil
+		}
+
+		if dumpType == dumpHex {
+			// skip first 8 of line because it's the counter thingy
+			// don't go to EOL because COLS bytes of that is the human-
+			// readable output
+			for len(line) >= 2 {
+				if n := hexDecode(char, line[0:2]); n == 0 {
+					line = line[2:]
+					w.Write(char)
+					c++
+				} else if n == -1 || n == -2 {
+					line = line[1:]
+				} else if n == -3 {
+					line = line[2:]
+				}
+			}
+		} else if dumpType == dumpBinary {
+			for len(line) >= 8 {
+				if n := binaryDecode(char, line[0:8]); n != -1 {
+					line = line[1:]
+					continue
+				} else {
+					w.Write(char)
+					line = line[8:]
+					c++
+				}
+			}
+		}
+
+		// For some reason "xxd FILE | xxd -r -c N" truncates the output,
+		// so we'll do it as well
+		// "xxd FILE | xxd -r -l N" doesn't truncate
+		if c == int64(cols) {
+			return nil
+		}
+	}
+	return nil
+}
+
 func xxd(r io.Reader, w io.Writer, fname string) error {
 	var (
 		lineOffset int64
 		hexOffset  = make([]byte, 6)
-		caps       = ldigits
+		groupSize  int
 		cols       int
 		octs       int
+		caps       = ldigits
 		doCHeader  = true
 		doCEnd     bool
 		// enough room for "unsigned char NAME_FORMAT[] = {"
@@ -207,19 +339,11 @@ func xxd(r io.Reader, w io.Writer, fname string) error {
 		varDeclInt = make([]byte, 16+len(fname)+7)
 		nulLine    int64
 		totalOcts  int64
-		skip       bool
-		odd        = *postscript || *cfmt
-		char       []byte
-		line       []byte
 	)
-
-	if *reverse && (*binary || *cfmt) {
-		log.Fatalln("xxd: sorry, cannot revert this type of hexdump")
-	}
 
 	// Generate the first and last line in the -i output:
 	// e.g. unsigned char foo_txt[] = { and unsigned int foo_txt_len =
-	if *cfmt {
+	if dumpType == dumpCformat {
 		// copy over "unnsigned char " and "unsigned int"
 		_ = copy(varDeclChar[0:14], unsignedChar[:])
 		_ = copy(varDeclInt[0:16], unsignedInt[:])
@@ -248,12 +372,12 @@ func xxd(r io.Reader, w io.Writer, fname string) error {
 	// simply catch the last option since that's what I assume the author
 	// wanted...
 	if *columns == -1 {
-		switch true {
-		case *postscript:
+		switch dumpType {
+		case dumpPostscript:
 			cols = 30
-		case *cfmt:
+		case dumpCformat:
 			cols = 12
-		case *binary:
+		case dumpBinary:
 			cols = 6
 		default:
 			cols = 16
@@ -263,19 +387,21 @@ func xxd(r io.Reader, w io.Writer, fname string) error {
 	}
 
 	// See above comment
-	if *group == -1 {
-		switch true {
-		case *binary:
-			octs = 8
-		case *postscript:
-			octs = 0
-		case *cfmt:
-			octs = 4
-		default:
-			octs = 2
-		}
-	} else {
-		octs = *group
+	switch dumpType {
+	case dumpBinary:
+		octs = 8
+		groupSize = 1
+	case dumpPostscript:
+		octs = 0
+	case dumpCformat:
+		octs = 4
+	default:
+		octs = 2
+		groupSize = 2
+	}
+
+	if *group != -1 {
+		groupSize = *group
 	}
 
 	// If -l is smaller than the number of cols just truncate the cols
@@ -291,15 +417,13 @@ func xxd(r io.Reader, w io.Writer, fname string) error {
 
 	// These are bumped down from the beginning of the function in order to
 	// allow for their sizes to be allocated based on the user's speficiations
-	if *reverse {
-		line = make([]byte, 9+cols*2+cols)
-		char = make([]byte, 1)
-	} else {
+	var (
 		line = make([]byte, cols)
 		char = make([]byte, octs)
-	}
+	)
 
 	c := int64(0) // number of characters
+	nl := int64(0)
 	r = bufio.NewReader(r)
 	for {
 		n, err := io.ReadFull(r, line)
@@ -307,42 +431,8 @@ func xxd(r io.Reader, w io.Writer, fname string) error {
 			return err
 		}
 
-		// reverse output of hex files, not binary or C format
-		if *reverse && n != 0 {
-			// skip first 8 of line because it's the counter thingy
-			// don't go to EOL because COLS bytes of that is the human-
-			// readable output
-			for i := 9; i < n-cols; i += 2 {
-				if n := hexDecode(char, line[i:i+2]); n == -1 {
-					skip = true
-					break
-				} else if n == -2 {
-					i++ // advance past the space
-					hexDecode(char, line[i:i+2])
-					w.Write(char)
-				} else if n == -3 {
-					continue
-				} else {
-					w.Write(char)
-					c++
-				}
-			}
-			if skip {
-				skip = false
-				continue // we've found a garbage line, so skip it
-			}
-
-			// For some reason "xxd FILE | xxd -r -c N" truncates the output,
-			// so we'll do it as well
-			// "xxd FILE | xxd -r -l N" doesn't truncate
-			if c == int64(cols) {
-				return nil
-			}
-			return nil
-		}
-
 		// Speed it up a bit ;)
-		if *postscript && n != 0 {
+		if dumpType == dumpPostscript && n != 0 {
 			// Post script values
 			// Basically just raw hex output
 			for i := 0; i < n; i++ {
@@ -353,12 +443,12 @@ func xxd(r io.Reader, w io.Writer, fname string) error {
 			continue
 		}
 
-		if n == 0 && !*cfmt {
-			if *postscript {
+		if n == 0 {
+			if dumpType == dumpPostscript {
 				w.Write(newLine)
 			}
-			return nil
-		} else if n == 0 && *cfmt {
+			return nil // Hidden return!
+		} else if n == 0 && dumpType == dumpCformat {
 			doCEnd = true
 		}
 
@@ -383,29 +473,32 @@ func xxd(r io.Reader, w io.Writer, fname string) error {
 			}
 		}
 
-		if *binary || !odd {
+		if dumpType <= dumpBinary { // either hex or binary
 			// Line offset
 			hexOffset = strconv.AppendInt(hexOffset[0:0], lineOffset, 16)
 			w.Write(zeroHeader[0:(6 - len(hexOffset))])
 			w.Write(hexOffset)
 			w.Write(zeroHeader[6:])
 			lineOffset++
-		} else if doCHeader && *cfmt {
+		} else if doCHeader {
 			w.Write(varDeclChar)
 			w.Write(newLine)
 			doCHeader = false
 		}
 
-		if *binary {
+		if dumpType == dumpBinary {
 			// Binary values
-			for i := 0; i < n; i++ {
+			for i, k := 0, octs; i < n; i, k = i+1, k+octs {
 				binaryEncode(char, line[i:i+1])
 				w.Write(char)
-				w.Write(space)
 				c++
 
+				if k == octs*groupSize {
+					k = 0
+					w.Write(space)
+				}
 			}
-		} else if *cfmt {
+		} else if dumpType == dumpCformat {
 			// C values
 			if !doCEnd {
 				w.Write(doubleSpace)
@@ -422,14 +515,15 @@ func xxd(r io.Reader, w io.Writer, fname string) error {
 					w.Write(comma)
 				}
 			}
-		} else if !*postscript {
+		} else {
 			// Hex values -- default xxd FILE output
-			for i := 0; i < n; i++ {
+			for i, k := 0, octs; i < n; i, k = i+1, k+octs {
 				hexEncode(char, line[i:i+1], caps)
 				w.Write(char)
 				c++
 
-				if i%2 == 1 {
+				if k == octs*groupSize {
+					k = 0 // reset counter
 					w.Write(space)
 				}
 			}
@@ -442,21 +536,21 @@ func xxd(r io.Reader, w io.Writer, fname string) error {
 			return nil
 		}
 
-		if n < len(line) && !*cfmt {
-			for i := n; i < len(line); i++ {
-				w.Write(doubleSpace)
+		if n < len(line) && dumpType <= dumpBinary {
+			for i := n * octs; i < len(line)*octs; i++ {
+				w.Write(space)
 
-				if i%2 == 1 {
+				if i%octs == 1 {
 					w.Write(space)
 				}
 			}
 		}
 
-		if !*cfmt {
+		if dumpType != dumpCformat {
 			w.Write(space)
 		}
 
-		if *binary || !odd {
+		if dumpType <= dumpBinary {
 			// Character values
 			b := line[:n]
 			// EBCDIC
@@ -485,6 +579,7 @@ func xxd(r io.Reader, w io.Writer, fname string) error {
 			}
 		}
 		w.Write(newLine)
+		nl++
 	}
 	return nil
 }
@@ -510,34 +605,14 @@ func main() {
 		file string
 	)
 
-	switch true {
-	case *binary:
-		*cfmt = false
-		*postscript = false
-		fallthrough
-	case *postscript:
-		*postscript = true
-		*binary = false
-		*cfmt = false
-		fallthrough
-	case *cfmt:
-		*cfmt = true
-		*binary = false
-		*postscript = false
-	default:
-		*cfmt = false
-		*binary = false
-		*postscript = false
-	}
-
 	if flag.NArg() >= 1 {
 		file = flag.Args()[0]
 	} else {
-		file = "--"
+		file = "-"
 	}
 
 	var inFile *os.File
-	if file == "--" {
+	if file == "-" {
 		inFile = os.Stdin
 		file = "stdin"
 	} else {
@@ -567,10 +642,29 @@ func main() {
 	}
 	defer outFile.Close()
 
+	switch true {
+	case *binary:
+		dumpType = dumpBinary
+	case *cfmt:
+		dumpType = dumpCformat
+	case *postscript:
+		dumpType = dumpPostscript
+	default:
+		dumpType = dumpHex
+	}
+
 	out := bufio.NewWriter(outFile)
 	defer out.Flush()
 
-	if err := xxd(inFile, out, file); err != nil {
-		log.Fatalln(err)
+	if *reverse {
+		if err := xxdReverse(inFile, out); err != nil {
+			log.Fatalln(err)
+		}
+		return
+	} else {
+		if err := xxd(inFile, out, file); err != nil {
+			log.Fatalln(err)
+		}
+		return
 	}
 }
