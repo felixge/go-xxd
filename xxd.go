@@ -19,16 +19,20 @@ const (
        xxd -r [-s offset] [-c cols] [--ps] [infile [outfile]]
 Options:
     -a, --autoskip     toggle autoskip: A single '*' replaces nul-lines. Default off.
-    -b, --binary       binary digit dump (incompatible with -ps,-i,-r). Default hex.
+    -B, --bars         print pipes/bars before/after ASCII/EBCDIC output. Default off.
+    -b, --binary       binary digit dump (incompatible with -ps, -i, -r).Default hex.
     -c, --cols         format <cols> octets per line. Default 16 (-i 12, --ps 30).
     -E, --ebcdic       show characters in EBCDIC. Default ASCII.
     -g, --groups       number of octets per group in normal output. Default 2.
     -h, --help         print this summary.
     -i, --include      output in C include file style.
     -l, --length       stop after <len> octets.
-        --ps           output in postscript plain hexdump style.
+    -p, --ps           output in postscript plain hexdump style.
     -r, --reverse      reverse operation: convert (or patch) hexdump into ASCII output.
-    -s, --seek         start at <seek> bytes in file.
+                       * reversing non-hexdump formats require -r<flag> (i.e. -rb, -ri, -rp).
+    -s, --seek         start at <seek> bytes/bits in file. Byte/bit postfixes can be used.
+    		       * byte/bit postfix units are multiples of 1024.
+    		       * bits (kb, mb, etc.) will be rounded down to nearest byte.
     -u, --uppercase    use upper case hex letters.
     -v, --version      show version.`
 	Version = `xxd v2.0 2014-17-01 by Felix Geisendörfer and Eric Lagergren`
@@ -37,6 +41,7 @@ Options:
 // cli flags
 var (
 	autoskip   = flag.BoolP("autoskip", "a", false, "toggle autoskip (* replaces nul lines")
+	bars       = flag.BoolP("bars", "B", false, "print |ascii| instead of ascii")
 	binary     = flag.BoolP("binary", "b", false, "binary dump, incompatible with -ps, -i, -r")
 	columns    = flag.IntP("cols", "c", -1, "format <cols> octets per line")
 	ebcdic     = flag.BoolP("ebcdic", "E", false, "use EBCDIC instead of ASCII")
@@ -46,7 +51,7 @@ var (
 	postscript = flag.BoolP("ps", "p", false, "output in postscript plain hd style")
 	reverse    = flag.BoolP("reverse", "r", false, "convert hex to binary")
 	offset     = flag.Int("off", 0, "revert with offset")
-	seek       = flag.Int64P("seek", "s", 0, "start at seek bytes abs")
+	seek       = flag.StringP("seek", "s", "", "start at seek bytes abs")
 	upper      = flag.BoolP("uppercase", "u", false, "use uppercase hex letters")
 	version    = flag.BoolP("version", "v", false, "print version")
 )
@@ -82,6 +87,7 @@ var (
 	commaSpace   = []byte(", ")
 	comma        = []byte(",")
 	semiColonNl  = []byte(";\n")
+	bar          = []byte("|")
 )
 
 // ascii -> ebcdic lookup table
@@ -140,12 +146,12 @@ func binaryDecode(dst, src []byte) int {
 		}
 		if v == '1' {
 			d ^= 1
+		} else if v != '0' {
+			return i // will catch issues like "000000: "
 		}
 	}
-	if d < 32 || d > 127 {
-		return 1
-	}
 
+	fmt.Println(strconv.Quote(string(src)), string(d), d)
 	dst[0] = d
 	return -1
 }
@@ -228,6 +234,99 @@ func empty(b *[]byte) bool {
 	return true
 }
 
+// quick binary tree check
+// probably horribly written idk it's late at night
+func parseSpecifier(b string) float64 {
+	var b0, b1 byte
+	lb := len(b)
+
+	if lb < 2 {
+		if lb == 0 {
+			return 0
+		}
+		b0 = b[0]
+		b1 = '0'
+	} else {
+		b0 = b[0]
+		b1 = b[1]
+	}
+
+	if b1 != '0' {
+		if b1 == 'b' { // bits, so convert bytes to bits for os.Seek()
+			if b0 == 'k' || b0 == 'K' {
+				return 0.0078125
+			}
+
+			if b0 == 'm' || b0 == 'M' {
+				return 7.62939453125e-06
+			}
+
+			if b0 == 'g' || b0 == 'G' {
+				return 7.45058059692383e-09
+			}
+		}
+
+		if b1 == 'B' { // kilo/mega/giga- bytes are assumed
+			if b0 == 'k' || b0 == 'K' {
+				return 1024
+			}
+
+			if b0 == 'm' || b0 == 'M' {
+				return 1048576
+			}
+
+			if b0 == 'g' || b0 == 'G' {
+				return 1073741824
+			}
+		}
+	} else { // kilo/mega/giga- bytes are assumed for single b, k, m, g
+		if b0 == 'k' || b0 == 'K' {
+			return 1024
+		}
+
+		if b0 == 'm' || b0 == 'M' {
+			return 1048576
+		}
+
+		if b0 == 'g' || b0 == 'G' {
+			return 1073741824
+		}
+	}
+
+	return 1 // assumes bytes as fallback
+}
+
+// parses *seek input
+func parseSeek(s string) int64 {
+	var (
+		sl    = len(s)
+		split int
+	)
+
+	if sl >= 2 {
+		if sl == 2 {
+			split = 1
+		} else {
+			split = 2
+		}
+	} else if sl != 0 {
+		split = 0
+	} else {
+		log.Fatalln("seek string somehow has len of 0")
+	}
+
+	mod := parseSpecifier(s[sl-split:])
+
+	ret, err := strconv.ParseFloat(s[:sl-split], 64) //64 bit float
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	fmt.Println(int64(ret * mod))
+	return int64(ret * mod)
+}
+
+// is byte a space? (\t, \n, \s)
 func isSpace(b *byte) bool {
 	if *b == 32 ||
 		*b == 9 ||
@@ -237,6 +336,7 @@ func isSpace(b *byte) bool {
 	return false
 }
 
+// are the two bytes hex prefixes? (0x or 0X)
 func isPrefix(b []byte) bool {
 	return b[0] == '0' && (b[1] == 'x' || b[1] == 'X')
 }
@@ -580,6 +680,10 @@ func xxd(r io.Reader, w io.Writer, fname string) error {
 		if dumpType <= dumpBinary {
 			// Character values
 			b := line[:n]
+			// |hello, world!| instead of hello, world!
+			if *bars {
+				w.Write(bar)
+			}
 			// EBCDIC
 			if *ebcdic {
 				for _, c := range b {
@@ -594,6 +698,9 @@ func xxd(r io.Reader, w io.Writer, fname string) error {
 						w.Write(dot)
 					}
 				}
+				if *bars {
+					w.Write(bar)
+				}
 				// ASCII
 			} else {
 				for i, c := range b {
@@ -603,6 +710,9 @@ func xxd(r io.Reader, w io.Writer, fname string) error {
 						w.Write(dot)
 					}
 				}
+			}
+			if *bars {
+				w.Write(bar)
 			}
 		}
 		w.Write(newLine)
@@ -651,8 +761,9 @@ func main() {
 	defer inFile.Close()
 
 	// Start *seek bytes into file
-	if *seek != 0 {
-		_, err = inFile.Seek(*seek, os.SEEK_SET)
+	if *seek != "" {
+		sv := parseSeek(*seek)
+		_, err := inFile.Seek(sv, os.SEEK_SET)
 		if err != nil {
 			log.Fatalln(err)
 		}
