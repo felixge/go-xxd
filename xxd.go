@@ -321,7 +321,6 @@ func parseSeek(s string) int64 {
 		log.Fatalln(err)
 	}
 
-	fmt.Println(int64(ret * mod))
 	return int64(ret * mod)
 }
 
