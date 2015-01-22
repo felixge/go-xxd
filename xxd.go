@@ -151,7 +151,6 @@ func binaryDecode(dst, src []byte) int {
 		}
 	}
 
-	fmt.Println(strconv.Quote(string(src)), string(d), d)
 	dst[0] = d
 	return -1
 }
