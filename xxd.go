@@ -636,7 +636,7 @@ func xxd(r io.Reader, w io.Writer, fname string) error {
 				// don't add spaces to EOL
 				if i != n-1 {
 					w.Write(commaSpace)
-				} else if doCEnd {
+				} else if n == cols {
 					w.Write(comma)
 				}
 			}
