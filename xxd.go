@@ -162,20 +162,18 @@ const (
 )
 
 func cfmtEncode(dst, src []byte, hextable string) {
+	var b byte = src[0]
 	dst[0] = '0'
 	dst[1] = 'x'
-	for i, v := range src {
-		dst[i+1*2] = hextable[v>>4]
-		dst[i+1*2+1] = hextable[v&0x0f]
-	}
+	dst[2] = hextable[b>>4]
+	dst[3] = hextable[b&0x0f]
 }
 
 // copied from encoding/hex package in order to add support for uppercase hex
 func hexEncode(dst, src []byte, hextable string) {
-	for i, v := range src {
-		dst[i*2] = hextable[v>>4]
-		dst[i*2+1] = hextable[v&0x0f]
-	}
+	var b byte = src[0]
+	dst[0] = hextable[b>>4]
+	dst[1] = hextable[b&0x0f]
 }
 
 // copied from encoding/hex package
