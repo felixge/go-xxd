@@ -34,7 +34,7 @@ func TestXXD(t *testing.T) {
 			return strings.Split(out.String(), "\n")
 		}
 	}
-	if err := quick.CheckEqual(test(XXD), test(xxdNative), nil); err != nil {
+	if err := quick.CheckEqual(test(xxd), test(xxdNative), nil); err != nil {
 		cErr := err.(*quick.CheckEqualError)
 		size := cErr.In[0].(uint64) % uint64(len(data))
 		for i := range cErr.Out1[0].([]string) {
@@ -76,7 +76,7 @@ func BenchmarkXXD(b *testing.B) {
 	}
 	buf := bytes.NewBuffer(data)
 	b.StartTimer()
-	if err := XXD(buf, ioutil.Discard, ""); err != nil {
+	if err := xxd(buf, ioutil.Discard, ""); err != nil {
 		b.Fatal(err)
 	}
 }
