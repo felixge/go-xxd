@@ -19,10 +19,12 @@ func TestXXD(t *testing.T) {
 	if *xxdFile == "" {
 		t.Skip("-xxdFile argument not given")
 	}
+
 	data, err := ioutil.ReadFile(*xxdFile)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	test := func(fn func(r io.Reader, w io.Writer, s string) error) func(n uint64) []string {
 		return func(n uint64) []string {
 			size := n % uint64(len(data))
@@ -34,6 +36,7 @@ func TestXXD(t *testing.T) {
 			return strings.Split(out.String(), "\n")
 		}
 	}
+
 	if err := quick.CheckEqual(test(xxd), test(xxdNative), nil); err != nil {
 		cErr := err.(*quick.CheckEqualError)
 		size := cErr.In[0].(uint64) % uint64(len(data))
