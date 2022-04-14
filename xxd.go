@@ -20,7 +20,7 @@ const (
 Options:
     -a, --autoskip     toggle autoskip: A single '*' replaces nul-lines. Default off.
     -B, --bars         print pipes/bars before/after ASCII/EBCDIC output. Default off.
-    -b, --binary       binary digit dump (incompatible with -ps, -i, -r).Default hex.
+    -b, --binary       binary digit dump (incompatible with -ps, -i, -r). Default hex.
     -c, --cols         format <cols> octets per line. Default 16 (-i 12, --ps 30).
     -E, --ebcdic       show characters in EBCDIC. Default ASCII.
     -g, --groups       number of octets per group in normal output. Default 2.
@@ -50,16 +50,13 @@ var (
 	length     = flag.Int64P("len", "l", -1, "stop after len octets")
 	postscript = flag.BoolP("ps", "p", false, "output in postscript plain hd style")
 	reverse    = flag.BoolP("reverse", "r", false, "convert hex to binary")
-	offset     = flag.Int("off", 0, "revert with offset")
 	seek       = flag.StringP("seek", "s", "", "start at seek bytes abs")
 	upper      = flag.BoolP("uppercase", "u", false, "use uppercase hex letters")
 	version    = flag.BoolP("version", "v", false, "print version")
 )
 
 // constants used in xxd()
-const (
-	ebcdicOffset = 0x40
-)
+const ebcdicOffset = 0x40
 
 // dumpType enum
 const (
@@ -67,6 +64,12 @@ const (
 	dumpBinary
 	dumpCformat
 	dumpPostscript
+)
+
+// hex lookup table for hex encoding
+const (
+	ldigits = "0123456789abcdef"
+	udigits = "0123456789ABCDEF"
 )
 
 // variables used in xxd*()
@@ -83,7 +86,6 @@ var (
 	lenEquals    = []byte("_len = ")
 	brackets     = []byte("[] = {")
 	asterisk     = []byte("*")
-	hexPrefix    = []byte("0x")
 	commaSpace   = []byte(", ")
 	comma        = []byte(",")
 	semiColonNl  = []byte(";\n")
@@ -121,6 +123,7 @@ var ebcdicTable = []byte{
 // convert a byte into its binary representation
 func binaryEncode(dst, src []byte) {
 	d := uint(0)
+	_, _ = src[0], dst[7]
 	for i := 7; i >= 0; i-- {
 		if src[0]&(1<<d) == 0 {
 			dst[i] = '0'
@@ -134,11 +137,11 @@ func binaryEncode(dst, src []byte) {
 // returns -1 on success
 // returns k > -1 if space found where k is index of space byte
 func binaryDecode(dst, src []byte) int {
-	var d byte
+	var v, d byte
 
-	for i, v := range src {
-		d <<= 1
-		if isSpace(&v) { // found a space, so between groups
+	for i := 0; i < len(src); i++ {
+		v, d = src[i], d<<1
+		if isSpace(v) { // found a space, so between groups
 			if i == 0 {
 				return 1
 			}
@@ -155,25 +158,19 @@ func binaryDecode(dst, src []byte) int {
 	return -1
 }
 
-// hex lookup table for hex encoding
-const (
-	ldigits = "0123456789abcdef"
-	udigits = "0123456789ABCDEF"
-)
-
 func cfmtEncode(dst, src []byte, hextable string) {
-	var b byte = src[0]
-	dst[0] = '0'
-	dst[1] = 'x'
-	dst[2] = hextable[b>>4]
+	b := src[0]
 	dst[3] = hextable[b&0x0f]
+	dst[2] = hextable[b>>4]
+	dst[1] = 'x'
+	dst[0] = '0'
 }
 
 // copied from encoding/hex package in order to add support for uppercase hex
 func hexEncode(dst, src []byte, hextable string) {
-	var b byte = src[0]
-	dst[0] = hextable[b>>4]
+	b := src[0]
 	dst[1] = hextable[b&0x0f]
+	dst[0] = hextable[b>>4]
 }
 
 // copied from encoding/hex package
@@ -181,8 +178,10 @@ func hexEncode(dst, src []byte, hextable string) {
 // returns -2 on two consecutive spaces
 // returns 0 on success
 func hexDecode(dst, src []byte) int {
-	if isSpace(&src[0]) {
-		if isSpace(&src[1]) {
+	_, _ = src[2], dst[0]
+
+	if isSpace(src[0]) {
+		if isSpace(src[1]) {
 			return -2
 		}
 		return -1
@@ -223,8 +222,8 @@ func fromHexChar(c byte) (byte, bool) {
 
 // check if entire line is full of empty []byte{0} bytes (nul in C)
 func empty(b *[]byte) bool {
-	for _, v := range *b {
-		if v != 0 {
+	for i := 0; i < len(*b); i++ {
+		if (*b)[i] != 0 {
 			return false
 		}
 	}
@@ -234,18 +233,18 @@ func empty(b *[]byte) bool {
 // quick binary tree check
 // probably horribly written idk it's late at night
 func parseSpecifier(b string) float64 {
-	var b0, b1 byte
 	lb := len(b)
+	if lb == 0 {
+		return 0
+	}
 
+	var b0, b1 byte
 	if lb < 2 {
-		if lb == 0 {
-			return 0
-		}
 		b0 = b[0]
 		b1 = '0'
 	} else {
-		b0 = b[0]
 		b1 = b[1]
+		b0 = b[0]
 	}
 
 	if b1 != '0' {
@@ -300,21 +299,21 @@ func parseSeek(s string) int64 {
 		split int
 	)
 
-	if sl >= 2 {
+	switch {
+	case sl >= 2:
 		if sl == 2 {
 			split = 1
 		} else {
 			split = 2
 		}
-	} else if sl != 0 {
+	case sl != 0:
 		split = 0
-	} else {
+	default:
 		log.Fatalln("seek string somehow has len of 0")
 	}
 
 	mod := parseSpecifier(s[sl-split:])
-
-	ret, err := strconv.ParseFloat(s[:sl-split], 64) //64 bit float
+	ret, err := strconv.ParseFloat(s[:sl-split], 64) // 64 bit float
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -323,13 +322,13 @@ func parseSeek(s string) int64 {
 }
 
 // is byte a space? (\t, \n, \s)
-func isSpace(b *byte) bool {
-	if *b == 32 ||
-		*b == 9 ||
-		*b == 12 {
+func isSpace(b byte) bool {
+	switch b {
+	case 32, 12, 9:
 		return true
+	default:
+		return false
 	}
-	return false
 }
 
 // are the two bytes hex prefixes? (0x or 0X)
@@ -440,7 +439,6 @@ func xxdReverse(r io.Reader, w io.Writer) error {
 			return nil
 		}
 	}
-	return nil
 }
 
 func xxd(r io.Reader, w io.Writer, fname string) error {
@@ -545,12 +543,18 @@ func xxd(r io.Reader, w io.Writer, fname string) error {
 	c := int64(0) // number of characters
 	nl := int64(0)
 	r = bufio.NewReader(r)
+
+	var (
+		v   byte
+		n   int
+		err error
+	)
+
 	for {
-		n, err := io.ReadFull(r, line)
+		n, err = io.ReadFull(r, line)
 		if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
 			return err
 		}
-
 		// Speed it up a bit ;)
 		if dumpType == dumpPostscript && n != 0 {
 			// Post script values
@@ -682,9 +686,10 @@ func xxd(r io.Reader, w io.Writer, fname string) error {
 			}
 			// EBCDIC
 			if *ebcdic {
-				for _, c := range b {
-					if c >= ebcdicOffset {
-						e := ebcdicTable[c-ebcdicOffset : c-ebcdicOffset+1]
+				for i := 0; i < len(b); i++ {
+					v = b[i]
+					if v >= ebcdicOffset {
+						e := ebcdicTable[v-ebcdicOffset : v-ebcdicOffset+1]
 						if e[0] > 0x1f && e[0] < 0x7f {
 							w.Write(e)
 						} else {
@@ -699,8 +704,10 @@ func xxd(r io.Reader, w io.Writer, fname string) error {
 				}
 				// ASCII
 			} else {
-				for i, c := range b {
-					if c > 0x1f && c < 0x7f {
+				var v byte
+				for i := 0; i < len(b); i++ {
+					v = b[i]
+					if v > 0x1f && v < 0x7f {
 						w.Write(line[i : i+1])
 					} else {
 						w.Write(dot)
@@ -719,18 +726,18 @@ func xxd(r io.Reader, w io.Writer, fname string) error {
 
 func main() {
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "%s\n", Help)
+		fmt.Fprintln(os.Stderr, Help)
 		os.Exit(0)
 	}
 	flag.Parse()
 
 	if *version {
-		fmt.Fprintf(os.Stderr, "%s\n", Version)
+		fmt.Fprintln(os.Stderr, Version)
 		os.Exit(0)
 	}
 
 	if flag.NArg() > 2 {
-		log.Fatalf("too many arguments after %s\n", flag.Args()[1])
+		log.Fatalf("Too many arguments after %s\n", flag.Args()[1])
 	}
 
 	var (
@@ -759,7 +766,7 @@ func main() {
 	// Start *seek bytes into file
 	if *seek != "" {
 		sv := parseSeek(*seek)
-		_, err := inFile.Seek(sv, os.SEEK_SET)
+		_, err = inFile.Seek(sv, os.SEEK_SET)
 		if err != nil {
 			log.Fatalln(err)
 		}
@@ -776,7 +783,7 @@ func main() {
 	}
 	defer outFile.Close()
 
-	switch true {
+	switch {
 	case *binary:
 		dumpType = dumpBinary
 	case *cfmt:
@@ -791,14 +798,13 @@ func main() {
 	defer out.Flush()
 
 	if *reverse {
-		if err := xxdReverse(inFile, out); err != nil {
+		if err = xxdReverse(inFile, out); err != nil {
 			log.Fatalln(err)
 		}
 		return
-	} else {
-		if err := xxd(inFile, out, file); err != nil {
-			log.Fatalln(err)
-		}
-		return
+	}
+
+	if err = xxd(inFile, out, file); err != nil {
+		log.Fatalln(err)
 	}
 }
